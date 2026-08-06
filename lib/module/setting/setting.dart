@@ -2,7 +2,11 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../../service/backup_service.dart';
+import '../../service/encryption_service.dart';
+import '../../service/google_drive_service.dart';
 import '../../service/preference_service.dart';
+import '../setup/setup_page.dart';
 
 class SettingPage extends StatefulWidget {
   const SettingPage({super.key});
@@ -14,6 +18,8 @@ class SettingPage extends StatefulWidget {
 class _SettingPageState extends State<SettingPage> {
   String _version = '';
   bool _closeToTray = PreferenceService.closeToTray;
+  bool _exportingFile = false;
+  bool _backingUpDrive = false;
 
   static const _supportedLocales = [
     Locale('en'),
@@ -56,8 +62,25 @@ class _SettingPageState extends State<SettingPage> {
                 _buildSectionLabel(context, 'close_behavior'.tr()),
                 _buildCloseToTrayCard(context, cs),
                 const SizedBox(height: 14),
+                _buildSectionLabel(context, 'backup'.tr()),
+                _buildBackupCard(context, cs),
+                const SizedBox(height: 14),
                 _buildSectionLabel(context, 'version'.tr()),
                 _buildAboutCard(context, cs),
+
+                // For Testing No data
+                /*TextButton(
+                  onPressed: () async {
+                    await EncryptionService.reset();
+                    if (context.mounted) {
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(builder: (_) => const SetupPage()),
+                            (_) => false,
+                      );
+                    }
+                  },
+                  child: const Text('Reset App', style: TextStyle(color: Colors.red)),
+                ),*/
               ],
             ),
           ),
@@ -239,6 +262,151 @@ class _SettingPageState extends State<SettingPage> {
                 setState(() => _closeToTray = v);
               },
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportToFile() async {
+    setState(() => _exportingFile = true);
+    try {
+      final path = await BackupService.saveToFile();
+      if (path != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('export_success'.tr())),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('export_failed'.tr())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportingFile = false);
+    }
+  }
+
+  Future<void> _backupToDrive() async {
+    setState(() => _backingUpDrive = true);
+    try {
+      final file = await BackupService.createTempBackup();
+      await GoogleDriveService.backupFile(file);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('backup_drive_success'.tr())),
+        );
+      }
+      await file.delete();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('backup_drive_failed'.tr())),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _backingUpDrive = false);
+    }
+  }
+
+  Widget _buildBackupCard(BuildContext context, ColorScheme cs) {
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: cs.surfaceContainerLow,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        children: [
+          _buildBackupRow(
+            context: context,
+            cs: cs,
+            icon: Icons.save_outlined,
+            label: 'export_file'.tr(),
+            desc: 'export_file_desc'.tr(),
+            loading: _exportingFile,
+            onTap: _exportToFile,
+            isFirst: true,
+          ),
+          Divider(
+            height: 1,
+            indent: 58,
+            endIndent: 14,
+            color: cs.outlineVariant.withAlpha(80),
+          ),
+          /*_buildBackupRow(
+            context: context,
+            cs: cs,
+            icon: Icons.cloud_upload_outlined,
+            label: 'backup_drive'.tr(),
+            desc: 'backup_drive_desc'.tr(),
+            loading: _backingUpDrive,
+            onTap: null, //_backupToDrive,
+            isFirst: false,
+          ),*/
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBackupRow({
+    required BuildContext context,
+    required ColorScheme cs,
+    required IconData icon,
+    required String label,
+    required String desc,
+    required bool loading,
+    required VoidCallback? onTap,
+    required bool isFirst,
+  }) {
+    return InkWell(
+      onTap: loading ? null : onTap,
+      borderRadius: BorderRadius.vertical(
+        top: isFirst ? const Radius.circular(12) : Radius.zero,
+        bottom: isFirst ? Radius.zero : const Radius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: cs.secondaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: loading
+                  ? Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.onSecondaryContainer,
+                      ),
+                    )
+                  : Icon(icon, size: 16, color: cs.onSecondaryContainer),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  Text(
+                    desc,
+                    style: TextStyle(fontSize: 11, color: cs.outline),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 18, color: cs.outline),
           ],
         ),
       ),
